@@ -50,6 +50,24 @@ uvicorn main:app --reload --port 8000
 
 - `GET /` - Root endpoint
 - `GET /health` - Health check endpoint
+- `POST /repository/clone` - Clone a GitHub repository into `indexed_repos/<name>/source`
+- `POST /repository/index` - Index an already-cloned repository. Returns structured
+  statistics (files scanned, chunks, embeddings, vectors stored, per-repository
+  vector count). Re-indexing replaces the repository's previous vectors, so stale
+  chunks from deleted or shrunk files are removed.
+- `POST /rag/query` - Ask a natural-language question about an indexed repository
+  (history-backed: `app/api/rag.py`).
+
+### RAG repository semantics
+
+- Repository does not exist locally -> `HTTP 404`.
+- Repository exists locally but has not been indexed -> `HTTP 404` (index it
+  via `POST /repository/index` first).
+- Repository is indexed but the question has no relevant context ->
+  `HTTP 200` with `insufficient_context=true` and no fabricated
+  repository-specific answer.
+- `insufficient_context` is never conflated with a repository that does not
+  exist.
 
 ## Development
 

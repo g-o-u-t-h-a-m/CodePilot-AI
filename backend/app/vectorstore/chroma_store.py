@@ -284,6 +284,92 @@ class ChromaVectorStore(VectorStore):
             logger.error(f"Failed to count collection: {e}")
             raise RuntimeError(f"Failed to count collection: {e}") from e
 
+    def delete_by_repository(self, repository_name: str) -> int:
+        """Delete every stored record that belongs to a repository.
+
+        ChromaDB records carry ``repository_name`` in their metadata, so the
+        repository's records are found with an exact-match ``where`` filter
+        and removed in one batched delete. This lets re-indexing replace a
+        repository's vectors wholesale; repositories with no stored records
+        simply delete zero records.
+
+        Args:
+            repository_name: The repository whose records should be deleted.
+
+        Returns:
+            Number of records deleted. Zero if the repository has no stored
+            records (which is not an error).
+
+        Raises:
+            RuntimeError: If ChromaDB deletion fails
+        """
+        logger.info(f"Fetching existing records for repository '{repository_name}'")
+        existing = self._collection.get(
+            where={"repository_name": repository_name},
+            include=["metadatas"],
+        )
+        ids = existing.get("ids") or []
+        if not ids:
+            logger.info(
+                f"Repository '{repository_name}' has no existing records; "
+                "nothing to delete"
+            )
+            return 0
+
+        logger.info(
+            f"Deleting {len(ids)} existing records for repository "
+            f"'{repository_name}'"
+        )
+        try:
+            self._collection.delete(ids=ids)
+            logger.info(
+                f"Deleted {len(ids)} records for repository '{repository_name}'"
+            )
+            return len(ids)
+        except Exception as e:
+            logger.error(
+                f"Failed to delete records for repository '{repository_name}': {e}"
+            )
+            raise RuntimeError(
+                f"Failed to delete records for repository "
+                f"'{repository_name}': {e}"
+            ) from e
+
+    def count_by_repository(self, repository_name: str) -> int:
+        """Count the number of stored records for a repository.
+
+        The collection's ``repository_name`` metadata is filtered with an
+        exact-match ``where``; the count is derived from the matching IDs.
+
+        Args:
+            repository_name: The repository to count records for.
+
+        Returns:
+            Number of records currently stored for the repository.
+
+        Raises:
+            RuntimeError: If ChromaDB retrieval of the filtered IDs fails
+        """
+        logger.info(f"Counting records for repository '{repository_name}'")
+        try:
+            records = self._collection.get(
+                where={"repository_name": repository_name},
+                include=["metadatas"],
+            )
+            total = len(records.get("ids") or [])
+            logger.info(
+                f"Repository '{repository_name}' has {total} records"
+            )
+            return total
+        except Exception as e:
+            logger.error(
+                f"Failed to count records for repository '{repository_name}': {e}"
+            )
+            raise RuntimeError(
+                f"Failed to count records for repository "
+                f"'{repository_name}': {e}"
+            ) from e
+
     def query_similar(
         self,
         embedding: List[float],

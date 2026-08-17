@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import health, repository
+from app.api import health, repository, rag
 
 # Configure logging
 logging.basicConfig(
@@ -29,6 +29,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router)
 app.include_router(repository.router)
+app.include_router(rag.router)
 
 @app.get("/")
 async def root():

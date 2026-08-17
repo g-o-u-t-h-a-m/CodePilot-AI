@@ -102,6 +102,51 @@ class VectorStore(ABC):
         pass
 
     @abstractmethod
+    def delete_by_repository(self, repository_name: str) -> int:
+        """Delete every stored record that belongs to a repository.
+
+        Repository isolation is keyed on the ``repository_name`` metadata
+        field. This method removes all records for the repository in a single
+        operation so callers (e.g. IndexingService) can replace a repository's
+        stale vectors wholesale when re-indexing.
+
+        Args:
+            repository_name: The repository whose records should be deleted.
+
+        Returns:
+            Number of records deleted. Zero if the repository has no stored
+            records (which is not an error).
+
+        Raises:
+            RuntimeError: If deletion fails.
+        """
+        pass
+
+    @abstractmethod
+    def count_by_repository(self, repository_name: str) -> int:
+        """Count the number of stored records for a repository.
+
+        Repository isolation is keyed on the ``repository_name`` metadata
+        field. Examples:
+
+            - An indexed repository can be verified to have as many vectors
+              as it produced chunks (``delete_by_repository`` then
+              ``add_many`` guarantees this).
+            - An existing repository with no vectors can be distinguished
+              from a nonexistent one every store can answer.
+
+        Args:
+            repository_name: The repository to count records for.
+
+        Returns:
+            Number of records currently stored for the repository.
+
+        Raises:
+            RuntimeError: If the count fails.
+        """
+        pass
+
+    @abstractmethod
     def query_similar(
         self,
         embedding: List[float],

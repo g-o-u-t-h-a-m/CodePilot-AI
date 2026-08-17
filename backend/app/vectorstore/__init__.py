@@ -9,6 +9,11 @@ Main components:
     - VectorStoreRecord: Application-facing stored record
     - ChunkEmbeddingPair: Chunk/embedding pair for batch insertion
 
+The interface exposes repository-scoped operations (``delete_by_repository``,
+``count_by_repository``) so consumers can isolate, inspect, and replace one
+repository's vectors (e.g. full replacement on re-index) without depending on
+ChromaDB.
+
 Design patterns:
     - Strategy Pattern: Different stores implement the same interface
     - Dependency Inversion: Consumers depend on VectorStore, not ChromaDB
