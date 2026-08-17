@@ -20,7 +20,11 @@ from chromadb.api.models.Collection import Collection
 
 from app.chunking.models import CodeChunk
 from app.embeddings.models import EmbeddingRecord
-from app.vectorstore.models import ChunkEmbeddingPair, VectorStoreRecord
+from app.vectorstore.models import (
+    ChunkEmbeddingPair,
+    SimilarityResult,
+    VectorStoreRecord,
+)
 from app.vectorstore.store import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -279,6 +283,112 @@ class ChromaVectorStore(VectorStore):
         except Exception as e:
             logger.error(f"Failed to count collection: {e}")
             raise RuntimeError(f"Failed to count collection: {e}") from e
+
+    def query_similar(
+        self,
+        embedding: List[float],
+        top_k: int,
+        filter_metadata: Optional[Dict[str, object]] = None
+    ) -> List[SimilarityResult]:
+        """Query the store for records most similar to a query embedding.
+
+        Uses ChromaDB's cosine metric (the collection is created with
+        "hnsw:space": "cosine"). ChromaDB returns a cosine *distance* in
+        [0, 2] where a lower value means more similar. We convert it to a
+        normalized similarity score as: score = 1 - distance.
+
+        This conversion is mathematically valid for the cosine metric:
+        cosine distance is defined as (1 - cosine_similarity), so
+        (1 - distance) recovers cosine similarity exactly, which lies in
+        [-1, 1] for the raw vectors and in [0, 1] here because the BGE
+        provider normalizes embeddings. The application-facing score is
+        therefore "higher = more relevant", consistent with the cosine
+        metric, and raw ChromaDB distance is never exposed.
+
+        Results are returned ordered from most relevant to least relevant
+        (ChromaDB returns query results in that order).
+
+        Args:
+            embedding: The query embedding vector
+            top_k: Maximum number of results to return
+            filter_metadata: Optional metadata filter (e.g. repository_name)
+                applied as an exact-match filter before ranking
+
+        Returns:
+            List of SimilarityResult ordered from most to least relevant.
+            Empty list if no records match.
+
+        Raises:
+            ValueError: If embedding is empty or top_k is not positive
+            RuntimeError: If ChromaDB query fails
+        """
+        if not embedding:
+            raise ValueError("Query embedding must not be empty")
+        if top_k <= 0:
+            raise ValueError(f"top_k must be positive, got {top_k}")
+
+        where = None
+        if filter_metadata:
+            # All ChromaDB metadata filters are ANDed together, so a
+            # query with multiple conditions becomes a dict of equality
+            # constraints.
+            where = {
+                key: value
+                for key, value in filter_metadata.items()
+                if key and value is not None
+            }
+
+        logger.info(
+            f"Querying {top_k} most similar records "
+            f"(dimension: {len(embedding)}, filter: {where or 'none'})"
+        )
+
+        try:
+            result = self._collection.query(
+                query_embeddings=[embedding],
+                n_results=top_k,
+                where=where,
+                include=["metadatas", "documents", "distances"]
+            )
+        except Exception as e:
+            logger.error(f"Failed to query similar records: {e}")
+            raise RuntimeError(f"Failed to query similar records: {e}") from e
+
+        # ChromaDB returns lists-of-lists (one entry per query embedding);
+        # we queried with a single embedding.
+        ids = (result.get("ids") or [[]])[0]
+        distances = (result.get("distances") or [[]])[0]
+        documents = (result.get("documents") or [[]])[0]
+        metadatas = (result.get("metadatas") or [[]])[0]
+
+        if not ids:
+            logger.info("No similar records found")
+            return []
+
+        results: List[SimilarityResult] = []
+        for index, record_id in enumerate(ids):
+            distance = distances[index] if index < len(distances) else 1.0
+            score = max(0.0, min(1.0, 1.0 - float(distance)))
+
+            metadata = {}
+            if index < len(metadatas) and metadatas[index] is not None:
+                metadata = dict(metadatas[index])
+
+            document = None
+            if index < len(documents) and documents[index] is not None:
+                document = documents[index]
+
+            results.append(
+                SimilarityResult(
+                    id=record_id,
+                    score=score,
+                    document=document,
+                    metadata=metadata
+                )
+            )
+
+        logger.info(f"Query returned {len(results)} results")
+        return results
 
     # ------------------------------------------------------------------
     # Internal helpers

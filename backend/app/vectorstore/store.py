@@ -12,24 +12,26 @@ provide the concrete storage behavior.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from app.chunking.models import CodeChunk
 from app.embeddings.models import EmbeddingRecord
-from app.vectorstore.models import ChunkEmbeddingPair, VectorStoreRecord
+from app.vectorstore.models import ChunkEmbeddingPair, SimilarityResult, VectorStoreRecord
 
 
 class VectorStore(ABC):
     """Abstract base class for vector storage.
 
     A vector store persists chunk/embedding pairs and their metadata
-    so that they can later be retrieved by chunk ID (and, in future
-    sprints, by semantic similarity).
+    so that they can later be retrieved by chunk ID or by semantic
+    similarity against a query embedding.
 
     Implementations must:
     - Persist embeddings, documents, and metadata
     - Support upsert semantics (adding an existing ID must not duplicate)
     - Preserve metadata such as repository_name for later filtering
+    - Query by semantic similarity, returning normalized relevance scores
+      where higher = more relevant (never exposing raw distance semantics)
     - Raise meaningful errors instead of swallowing failures
 
     A vector store MUST NOT generate embeddings itself; it receives
@@ -96,5 +98,40 @@ class VectorStore(ABC):
 
         Returns:
             Total number of records currently stored
+        """
+        pass
+
+    @abstractmethod
+    def query_similar(
+        self,
+        embedding: List[float],
+        top_k: int,
+        filter_metadata: Optional[Dict[str, object]] = None
+    ) -> List[SimilarityResult]:
+        """Query the store for records most similar to a query embedding.
+
+        This is the semantic retrieval entry point used by the Retriever
+        (Sprint 7). Implementations must return records ordered from most
+        relevant to least relevant.
+
+        Score semantics are normalized by the store: every returned score
+        is in [0, 1] where a higher score means more relevant. Implementations
+        must NOT expose raw distance values (e.g. ChromaDB's cosine distance),
+        and must not invent conversions that are mathematically invalid for
+        the configured metric.
+
+        Args:
+            embedding: The query embedding vector
+            top_k: Maximum number of results to return
+            filter_metadata: Optional metadata filter (e.g. repository_name)
+                applied as an exact-match filter before ranking
+
+        Returns:
+            List of SimilarityResult ordered from most to least relevant.
+            Empty list if no records match.
+
+        Raises:
+            ValueError: If embedding is empty or top_k is not positive
+            RuntimeError: If the similarity query fails
         """
         pass

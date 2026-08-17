@@ -39,7 +39,11 @@ from app.vectorstore.chroma_store import (
     DEFAULT_COLLECTION_NAME,
     ChromaVectorStore,
 )
-from app.vectorstore.models import ChunkEmbeddingPair, VectorStoreRecord
+from app.vectorstore.models import (
+    ChunkEmbeddingPair,
+    SimilarityResult,
+    VectorStoreRecord,
+)
 from app.vectorstore.store import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -76,6 +80,7 @@ __all__ = [
     "ChromaVectorStore",
     "VectorStoreRecord",
     "ChunkEmbeddingPair",
+    "SimilarityResult",
     "create_vector_store",
     "DEFAULT_CHROMA_PATH",
     "DEFAULT_COLLECTION_NAME",
