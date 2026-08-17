@@ -5,3 +5,4 @@ pydantic-settings==2.5.2
 python-multipart==0.0.12
 gitpython==3.1.43
 chardet==5.2.0
+sentence-transformers==3.0.1
