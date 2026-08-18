@@ -58,6 +58,51 @@ uvicorn main:app --reload --port 8000
 - `POST /rag/query` - Ask a natural-language question about an indexed repository
   (history-backed: `app/api/rag.py`).
 
+### Command-Line Client (Sprint 10A)
+
+The CLI is a **client of the FastAPI backend only**. It communicates over HTTP
+and never instantiates or calls the core pipeline (`RepositoryManager`,
+`RepositoryScanner`, `ChunkEngine`, `EmbeddingEngine`, ChromaDB, `Retriever`,
+`PromptBuilder`, `RAGService`, `LLMProvider`) directly. Cloning, scanning,
+chunking, embedding, retrieval, and generation all remain inside the backend;
+a future React frontend can use exactly the same API.
+
+```text
+CLI  ->  HTTP  ->  FastAPI  ->  API routers  ->  services  ->  CodePilot core
+```
+
+From the `backend/` directory, after starting the backend with
+`uvicorn main:app --reload --port 8000`:
+
+```bash
+python -m app.cli health
+python -m app.cli clone <github-url>
+python -m app.cli index <repository-name>
+python -m app.cli ask <repository-name> "<question>"
+```
+
+The `ask` command accepts an optional `--top-k` (1-20) to cap the number of
+retrieved sources:
+
+```bash
+python -m app.cli ask demo-repository "Where is authentication handled?" --top-k 5
+```
+
+By default the CLI targets `http://127.0.0.1:8000`. Override it with the
+`CODEPILOT_API_URL` environment variable (or the per-invocation `--url` flag):
+
+```bash
+# PowerShell
+$env:CODEPILOT_API_URL="http://127.0.0.1:8001"
+python -m app.cli health
+
+# bash/zsh
+CODEPILOT_API_URL="http://127.0.0.1:8001" python -m app.cli health
+```
+
+No API keys are required for local development; the default mock LLM provider
+keeps the setup at zero cost.
+
 ### RAG repository semantics
 
 - Repository does not exist locally -> `HTTP 404`.
