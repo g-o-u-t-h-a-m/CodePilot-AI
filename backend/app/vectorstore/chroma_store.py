@@ -49,6 +49,11 @@ _METADATA_KEYS = [
     "end_line",
 ]
 
+# Max records per upsert call. ChromaDB rejects single requests larger than
+# its max_batch_size (5461 for the local persistent client); batching well
+# below that keeps one large repository from failing the whole upsert.
+_CHROMA_UPSERT_BATCH_SIZE = 2000
+
 
 class ChromaVectorStore(VectorStore):
     """ChromaDB-backed implementation of the VectorStore interface.
@@ -186,18 +191,14 @@ class ChromaVectorStore(VectorStore):
             f"Batch upserting {len(ids)} chunks into collection"
         )
 
-        try:
-            self._collection.upsert(
-                ids=ids,
-                embeddings=embeddings,
-                documents=documents,
-                metadatas=metadatas
-            )
-            logger.info(f"Batch upserted {len(ids)} chunks")
-            return len(ids)
-        except Exception as e:
-            logger.error(f"Failed to batch upsert {len(ids)} chunks: {e}")
-            raise RuntimeError(f"Failed to batch upsert chunks: {e}") from e
+        self._upsert_batches(
+            ids=ids,
+            embeddings=embeddings,
+            documents=documents,
+            metadatas=metadatas,
+        )
+        logger.info(f"Batch upserted {len(ids)} chunks")
+        return len(ids)
 
     def get(
         self,
@@ -479,6 +480,57 @@ class ChromaVectorStore(VectorStore):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _upsert_batches(
+        self,
+        ids: List[str],
+        embeddings: List[List[float]],
+        documents: List[str],
+        metadatas: List[Dict[str, object]],
+    ) -> None:
+        """Upsert records in batches that stay below ChromaDB's limit.
+
+        ChromaDB rejects a single ``upsert`` whose record count exceeds its
+        ``max_batch_size`` (5461 for the local persistent client). Large
+        repositories can produce more chunks than that in one indexing pass
+        (LoyalBasket produces 6017), so the record lists are split into
+        ``_CHROMA_UPSERT_BATCH_SIZE``-sized slices and each is upserted
+        separately. Slicing is by index, so empty slices never occur for a
+        non-empty ``ids``.
+
+        Args:
+            ids: Chunk IDs to upsert.
+            embeddings: Matching embedding vectors.
+            documents: Matching chunk contents.
+            metadatas: Matching ChromaDB-safe metadata dicts.
+
+        Raises:
+            RuntimeError: If any ChromaDB upsert fails.
+        """
+        if not ids:
+            return
+
+        for offset in range(0, len(ids), _CHROMA_UPSERT_BATCH_SIZE):
+            slice_end = offset + _CHROMA_UPSERT_BATCH_SIZE
+            logger.info(
+                f"Upserting chunk batch [{offset}:{slice_end}] "
+                f"of {len(ids)}"
+            )
+            try:
+                self._collection.upsert(
+                    ids=ids[offset:slice_end],
+                    embeddings=embeddings[offset:slice_end],
+                    documents=documents[offset:slice_end],
+                    metadatas=metadatas[offset:slice_end],
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to batch upsert chunks "
+                    f"[{offset}:{slice_end}]: {e}"
+                )
+                raise RuntimeError(
+                    f"Failed to batch upsert chunks: {e}"
+                ) from e
 
     def _validate_pair(self, chunk: CodeChunk, record: EmbeddingRecord) -> None:
         """Validate that an embedding record belongs to a code chunk.

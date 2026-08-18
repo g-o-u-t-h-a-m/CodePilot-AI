@@ -119,7 +119,19 @@ class EmbeddingEngine:
                 f"Using cached embedding for chunk {chunk.id} "
                 f"(content_hash: {chunk.content_hash})"
             )
-            return cached_record
+            # Return a fresh record bound to THIS chunk. The cache is keyed
+            # only by content_hash, so the cached record may have been created
+            # for a different chunk with identical content. Returning it
+            # directly would carry that chunk's id and make VectorStore
+            # validation fail (record.chunk_id != chunk.id). Reuse the cached
+            # vector but rebind identity fields to the current chunk.
+            return EmbeddingRecord(
+                chunk_id=chunk.id,
+                embedding=cached_record.embedding,
+                model_name=cached_record.model_name,
+                dimension=cached_record.dimension,
+                content_hash=chunk.content_hash,
+            )
 
         # Generate new embedding
         logger.info(f"Generating new embedding for chunk {chunk.id}")
